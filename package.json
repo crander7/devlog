@@ -1,0 +1,114 @@
+{
+    "name": "devlog",
+    "version": "1.0.0",
+    "description": "Electron app for clocking in and out of work",
+    "main": "dist-electron/main.mjs",
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "build": "npm run build:routes && vite build && npm run build:cli",
+        "electron:dev": "run-p dev electron:wait",
+        "electron:build": "npm run build && electron-builder",
+        "rebuild": "electron-rebuild",
+        "lint": "biome check .",
+        "format": "biome check . --write",
+        "typecheck": "tsc --noEmit",
+        "NOTE": "echo 'The above are standalone scripts. The scripts below are used by the above scripts.'",
+        "build:routes": "npx @tanstack/router-cli generate --routes src/routes --output src/routeTree.gen.ts",
+        "build:cli": "tsc src/cli.ts --outDir dist-cli --module esnext --target es2020 --moduleResolution node --esModuleInterop --skipLibCheck --resolveJsonModule",
+        "electron:wait": "wait-on http://localhost:5173 && npm run electron",
+        "electron": "NODE_ENV=development npx electron . --trace-warnings",
+        "cli": "tsx src/cli.ts",
+        "ci": "tsx src/cli.ts ci",
+        "co": "tsx src/cli.ts co"
+    },
+    "keywords": [
+        "electron",
+        "devlog",
+        "time-tracking"
+    ],
+    "author": "Craig Andersen <andersen.craigm@gmail.com>",
+    "license": "MIT",
+    "build": {
+        "appId": "com.devlog.app",
+        "productName": "DevLog",
+        "directories": {
+            "output": "dist"
+        },
+        "files": [
+            "dist/**/*",
+            "dist-electron/**/*",
+            "dist-cli/**/*",
+            "package.json"
+        ],
+        "extraResources": [
+            {
+                "from": "dist-cli/cli.js",
+                "to": "cli/cli.js",
+                "filter": [
+                    "**/*"
+                ]
+            }
+        ],
+        "mac": {
+            "target": "dmg",
+            "category": "public.app-category.productivity",
+            "icon": "assets/icon.icns"
+        }
+    },
+    "dependencies": {
+        "@radix-ui/react-alert-dialog": "^1.1.15",
+        "@radix-ui/react-checkbox": "^1.0.4",
+        "@radix-ui/react-dialog": "^1.0.5",
+        "@radix-ui/react-label": "^2.0.2",
+        "@radix-ui/react-progress": "^1.0.3",
+        "@radix-ui/react-select": "^2.0.0",
+        "@radix-ui/react-slot": "^1.0.2",
+        "@radix-ui/react-switch": "^1.2.6",
+        "@tanstack/react-router": "^1.20.0",
+        "@tiptap/extension-highlight": "^3.13.0",
+        "@tiptap/extension-link": "^3.13.0",
+        "@tiptap/extension-placeholder": "^3.13.0",
+        "@tiptap/extension-task-item": "^3.13.0",
+        "@tiptap/extension-task-list": "^3.13.0",
+        "@tiptap/extension-text-style": "^3.13.0",
+        "@tiptap/extension-underline": "^3.13.0",
+        "@tiptap/pm": "^3.13.0",
+        "@tiptap/react": "^3.13.0",
+        "@tiptap/starter-kit": "^3.13.0",
+        "better-sqlite3": "^12.5.0",
+        "class-variance-authority": "^0.7.0",
+        "clsx": "^2.1.0",
+        "cmdk": "^1.1.1",
+        "date-fns": "^4.1.0",
+        "dompurify": "^3.3.1",
+        "drizzle-orm": "^0.45.1",
+        "lucide-react": "^0.344.0",
+        "react": "^18.2.0",
+        "react-dom": "^18.2.0",
+        "tailwind-merge": "^2.2.0"
+    },
+    "devDependencies": {
+        "@biomejs/biome": "2.3.8",
+        "@electron/rebuild": "^4.0.2",
+        "@tailwindcss/typography": "^0.5.19",
+        "@types/better-sqlite3": "^7.6.13",
+        "@types/node": "^20.10.6",
+        "@types/react": "^18.2.46",
+        "@types/react-dom": "^18.2.18",
+        "@vitejs/plugin-react": "^4.2.1",
+        "autoprefixer": "^10.4.16",
+        "drizzle-kit": "^0.31.8",
+        "electron": "^28.0.0",
+        "electron-builder": "^24.9.1",
+        "npm-run-all2": "^8.0.4",
+        "postcss": "^8.4.32",
+        "tailwindcss": "^3.4.0",
+        "tailwindcss-animate": "^1.0.7",
+        "tsx": "^4.21.0",
+        "typescript": "^5.3.3",
+        "vite": "^5.0.8",
+        "vite-plugin-electron": "^0.28.0",
+        "wait-on": "^9.0.3"
+    }
+}
