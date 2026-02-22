@@ -1,6 +1,6 @@
 # Installing the CLI
 
-The DevLog CLI is **automatically installed** when you first launch the Electron app!
+The DevLog CLI is **automatically installed** when you first launch the Electrobun app!
 
 If automatic installation didn't work, or you need to reinstall, follow the manual instructions below.
 
@@ -15,12 +15,18 @@ If automatic installation didn't work, or you need to reinstall, follow the manu
    ./scripts/install-cli.sh
    ```
 
-   Or manually create a symlink:
+   Or manually create a wrapper script:
 
    ```bash
-   sudo ln -s "/Applications/DevLog.app/Contents/Resources/cli/cli.js" /usr/local/bin/devlog
-   sudo chmod +x /usr/local/bin/devlog
+   mkdir -p ~/.local/bin
+   cat > ~/.local/bin/devlog << 'EOF'
+   #!/bin/bash
+   exec bun "/Applications/DevLog.app/Contents/Resources/cli/cli.js" "$@"
+   EOF
+   chmod +x ~/.local/bin/devlog
    ```
+
+   Make sure `~/.local/bin` is on your PATH.
 
 3. Verify installation:
 
@@ -39,14 +45,15 @@ If automatic installation didn't work, or you need to reinstall, follow the manu
    ```
 
    Or manually:
-   - Create `C:\Program Files\devlog\devlog.bat`:
+   - Create a directory (e.g. `%LOCALAPPDATA%\devlog`)
+   - Create `devlog.bat` inside it:
 
      ```batch
      @echo off
-     node "C:\Program Files\DevLog\resources\cli\cli.js" %*
+     bun "%APPDATA%\devlog\cli.js" %*
      ```
 
-   - Add `C:\Program Files\devlog` to your PATH
+   - Add that directory to your PATH
 
 3. Restart your terminal and verify:
 
@@ -58,12 +65,18 @@ If automatic installation didn't work, or you need to reinstall, follow the manu
 
 1. Install the DevLog app
 
-2. Create a symlink:
+2. Create a wrapper script:
 
    ```bash
-   sudo ln -s "/opt/devlog/resources/cli/cli.js" /usr/local/bin/devlog
-   sudo chmod +x /usr/local/bin/devlog
+   mkdir -p ~/.local/bin
+   cat > ~/.local/bin/devlog << 'EOF'
+   #!/bin/bash
+   exec bun "$HOME/.config/devlog/cli.js" "$@"
+   EOF
+   chmod +x ~/.local/bin/devlog
    ```
+
+   Make sure `~/.local/bin` is on your PATH.
 
 3. Verify installation:
 
@@ -76,17 +89,17 @@ If automatic installation didn't work, or you need to reinstall, follow the manu
 If you're developing and want to use the CLI without installing:
 
 ```bash
-# Using npm scripts (requires tsx)
-npm run ci
-npm run co
+# Using bun scripts
+bun run ci
+bun run co
 
-# Or directly with tsx
-npx tsx src/cli.ts ci
-npx tsx src/cli.ts co
+# Or directly
+bun src/cli.ts ci
+bun src/cli.ts co
 ```
 
 ## Notes
 
-- The CLI uses the same data file as the Electron app
+- The CLI uses the same SQLite database as the Electrobun app
 - You can switch between CLI and GUI seamlessly
-- The CLI requires Node.js to be installed on your system
+- The CLI requires [Bun](https://bun.sh) to be installed on your system

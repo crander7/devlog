@@ -44,7 +44,8 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useDebounce } from '@/hooks/use-debounce';
-import type { Todo } from '@/types/electron';
+import { api } from '@/lib/api';
+import type { Todo } from '@/shared/rpc-types';
 
 interface TodoFormData {
     title: string;
@@ -80,7 +81,7 @@ export function Todos() {
 
     const loadTodos = useCallback(async () => {
         try {
-            const data = await window.electronAPI.getAppData();
+            const data = await api.getAppData();
             setTodos(data.todos);
         } catch (error) {
             console.error('Failed to load todos:', error);
@@ -103,9 +104,9 @@ export function Todos() {
             };
 
             if (editingTodo) {
-                await window.electronAPI.updateTodo(editingTodo.id, todoData);
+                await api.updateTodo(editingTodo.id, todoData);
             } else {
-                await window.electronAPI.createTodo(todoData);
+                await api.createTodo(todoData);
             }
 
             await loadTodos();
@@ -120,7 +121,7 @@ export function Todos() {
         try {
             const todo = todos.find((t) => t.id === id);
             if (todo) {
-                await window.electronAPI.updateTodo(id, {
+                await api.updateTodo(id, {
                     completed: !todo.completed,
                 });
                 await loadTodos();
@@ -144,7 +145,7 @@ export function Todos() {
 
     const handleDelete = async (id: string) => {
         try {
-            await window.electronAPI.deleteTodo(id);
+            await api.deleteTodo(id);
             await loadTodos();
         } catch (error) {
             console.error('Failed to delete todo:', error);
@@ -451,7 +452,7 @@ export function Todos() {
                                 <div className="space-y-2">
                                     {formData.tags.map((tag, index) => (
                                         <div
-                                            key={`tag-input-${index.toString()}-${Math.random()}`}
+                                            key={`tag-input-${index.toString()}`}
                                             className="flex gap-2"
                                         >
                                             <Input

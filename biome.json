@@ -11,10 +11,9 @@
             "**/*",
             "!*.css",
             "!src/routeTree.gen.ts",
-            "!dist-electron",
             "!dist-cli",
             "!dist",
-            "!electron/db/migrate-from-json.ts",
+            "!build",
             "!package-lock.json"
         ]
     },

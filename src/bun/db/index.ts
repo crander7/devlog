@@ -1,24 +1,43 @@
-import path from 'node:path';
-import Database from 'better-sqlite3';
-import { drizzle } from 'drizzle-orm/better-sqlite3';
-import { app } from 'electron';
+import { Database } from 'bun:sqlite';
+import { existsSync, mkdirSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { drizzle } from 'drizzle-orm/bun-sqlite';
 import * as schema from './schema';
 
-// Get database path in user data directory
-const dbPath = path.join(app.getPath('userData'), 'devlog.db');
+function getDbPath(): string {
+    const platform = process.platform;
+    let userDataPath: string;
 
-// Initialize SQLite database
+    if (platform === 'darwin') {
+        userDataPath = join(
+            homedir(),
+            'Library',
+            'Application Support',
+            'devlog',
+        );
+    } else if (platform === 'win32') {
+        userDataPath = join(homedir(), 'AppData', 'Roaming', 'devlog');
+    } else {
+        userDataPath = join(homedir(), '.config', 'devlog');
+    }
+
+    if (!existsSync(userDataPath)) {
+        mkdirSync(userDataPath, { recursive: true });
+    }
+
+    return join(userDataPath, 'devlog.db');
+}
+
+const dbPath = getDbPath();
 const sqlite = new Database(dbPath);
 
-// Enable WAL mode for better performance
-sqlite.pragma('journal_mode = WAL');
+sqlite.exec('PRAGMA journal_mode = WAL;');
 
-// Create Drizzle instance
 export const db = drizzle(sqlite, { schema });
+export { sqlite };
 
-// Initialize database with default settings if needed
 export function initializeDatabase() {
-    // Create tables (idempotent - only creates if not exists)
     sqlite.exec(`
         CREATE TABLE IF NOT EXISTS work_logs (
             id TEXT PRIMARY KEY,
@@ -83,7 +102,8 @@ export function initializeDatabase() {
             pomodoro_long_break_interval INTEGER NOT NULL DEFAULT 4,
             pomodoro_auto_start_pomodoros INTEGER NOT NULL DEFAULT 0,
             pomodoro_auto_start_breaks INTEGER NOT NULL DEFAULT 0,
-            pomodoro_sound_enabled INTEGER NOT NULL DEFAULT 1
+            pomodoro_sound_enabled INTEGER NOT NULL DEFAULT 1,
+            clock_in_prompt_on_launch INTEGER NOT NULL DEFAULT 1
         );
 
         CREATE TABLE IF NOT EXISTS active_timer (
@@ -103,7 +123,16 @@ export function initializeDatabase() {
         CREATE INDEX IF NOT EXISTS idx_pomodoro_sessions_date ON pomodoro_sessions(date);
     `);
 
-    // Initialize settings if not exists
+    // Migrate: add clock_in_prompt_on_launch column if missing
+    const settingsCols = sqlite
+        .prepare("PRAGMA table_info('settings')")
+        .all() as { name: string }[];
+    if (!settingsCols.some((c) => c.name === 'clock_in_prompt_on_launch')) {
+        sqlite.exec(
+            'ALTER TABLE settings ADD COLUMN clock_in_prompt_on_launch INTEGER NOT NULL DEFAULT 1',
+        );
+    }
+
     const existingSettings = sqlite
         .prepare('SELECT COUNT(*) as count FROM settings WHERE id = 1')
         .get() as { count: number };
@@ -111,19 +140,16 @@ export function initializeDatabase() {
     if (existingSettings.count === 0) {
         sqlite
             .prepare(
-                `
-            INSERT INTO settings (
-                id, theme, pomodoro_focus_time, pomodoro_short_break_time,
-                pomodoro_long_break_time, pomodoro_long_break_interval,
-                pomodoro_auto_start_pomodoros, pomodoro_auto_start_breaks,
-                pomodoro_sound_enabled
-            ) VALUES (1, 'dark', 25, 5, 15, 4, 0, 0, 1)
-        `,
+                `INSERT INTO settings (
+                    id, theme, pomodoro_focus_time, pomodoro_short_break_time,
+                    pomodoro_long_break_time, pomodoro_long_break_interval,
+                    pomodoro_auto_start_pomodoros, pomodoro_auto_start_breaks,
+                    pomodoro_sound_enabled, clock_in_prompt_on_launch
+                ) VALUES (1, 'dark', 25, 5, 15, 4, 0, 0, 1, 1)`,
             )
             .run();
     }
 
-    // Initialize active timer if not exists
     const existingTimer = sqlite
         .prepare('SELECT COUNT(*) as count FROM active_timer WHERE id = 1')
         .get() as { count: number };
@@ -131,18 +157,15 @@ export function initializeDatabase() {
     if (existingTimer.count === 0) {
         sqlite
             .prepare(
-                `
-            INSERT INTO active_timer (id, is_running, cycle_count)
-            VALUES (1, 0, 0)
-        `,
+                `INSERT INTO active_timer (id, is_running, cycle_count)
+                VALUES (1, 0, 0)`,
             )
             .run();
     }
 
-    console.log('Database initialized at:', dbPath);
+    // console.log('Database initialized at:', dbPath);
 }
 
-// Helper to close database (call on app quit)
 export function closeDatabase() {
     sqlite.close();
 }

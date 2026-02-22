@@ -11,11 +11,12 @@ import {
     CardTitle,
 } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
+import { api } from '@/lib/api';
 import type {
     ActiveTimerState,
     AppData,
     PomodoroSession,
-} from '@/types/electron';
+} from '@/shared/rpc-types';
 
 type TimerPhase = 'focus' | 'short-break' | 'long-break';
 
@@ -26,31 +27,6 @@ interface PomodoroState {
     cycleCount: number;
     totalSessionsToday: number;
 }
-
-// Helper function to play beep sound
-const playBeepSound = (context: AudioContext) => {
-    try {
-        const oscillator = context.createOscillator();
-        const gainNode = context.createGain();
-
-        oscillator.connect(gainNode);
-        gainNode.connect(context.destination);
-
-        oscillator.frequency.setValueAtTime(800, context.currentTime);
-        oscillator.frequency.setValueAtTime(600, context.currentTime + 0.1);
-
-        gainNode.gain.setValueAtTime(0.3, context.currentTime);
-        gainNode.gain.exponentialRampToValueAtTime(
-            0.01,
-            context.currentTime + 0.5,
-        );
-
-        oscillator.start(context.currentTime);
-        oscillator.stop(context.currentTime + 0.5);
-    } catch (err) {
-        console.warn('Error playing beep sound:', err);
-    }
-};
 
 export function Pomodoro() {
     const [data, setData] = useState<AppData | null>(null);
@@ -65,15 +41,7 @@ export function Pomodoro() {
 
     const loadData = useCallback(async () => {
         try {
-            console.log('Loading pomodoro data...');
-            console.log('electronAPI available:', !!window.electronAPI);
-            console.log(
-                'getAppData method:',
-                typeof window.electronAPI?.getAppData,
-            );
-
-            const appData = await window.electronAPI.getAppData();
-            console.log('App data loaded:', appData);
+            const appData = await api.getAppData();
             setData(appData);
 
             // Calculate today's sessions
@@ -81,9 +49,8 @@ export function Pomodoro() {
             const todaysSessions = appData.pomodoroSessions.filter(
                 (session) => session.date === today && session.completed,
             );
-            console.log("Today's sessions:", todaysSessions.length);
 
-            // Restore active timer if it exists
+            // Restore display state from active timer if it exists (never auto-start; user must click Start)
             if (
                 appData?.activeTimer?.isRunning &&
                 appData?.activeTimer?.startedAt
@@ -97,27 +64,15 @@ export function Pomodoro() {
                     appData.activeTimer.totalDuration - elapsed,
                 );
 
-                console.log('Restoring active timer:', {
-                    elapsed,
-                    remaining,
-                    phase: appData.activeTimer.phase,
-                });
-
                 setTimerState({
                     timeLeft: remaining,
-                    isRunning: remaining > 0,
+                    isRunning: false,
                     phase: appData.activeTimer.phase,
                     cycleCount: appData.activeTimer.cycleCount,
                     totalSessionsToday: todaysSessions.length,
                 });
-
-                // If timer expired while away, trigger completion
-                if (remaining === 0) {
-                    console.log(
-                        'Timer expired while away, triggering completion',
-                    );
-                    // Will be handled by the useEffect that watches for timeLeft === 0
-                }
+                // Clear persisted running state so tray and DB match (user must click Start)
+                api.saveAppData({ activeTimer: null }).catch(() => {});
             } else {
                 setTimerState((prev) => ({
                     ...prev,
@@ -125,8 +80,6 @@ export function Pomodoro() {
                     timeLeft: appData.settings.pomodoro.focusTime * 60,
                 }));
             }
-
-            console.log('Pomodoro data loaded successfully');
         } catch (error) {
             console.error('Failed to load pomodoro data:', error);
         }
@@ -181,10 +134,10 @@ export function Pomodoro() {
                       }
                     : undefined;
 
-                await window.electronAPI.saveAppData({ activeTimer });
+                await api.saveAppData({ activeTimer });
 
                 // Update tray timer display immediately with current state
-                window.electronAPI.updateTrayTimer(activeTimer).catch((err) => {
+                api.updateTrayTimer(activeTimer).catch((err) => {
                     console.warn('Failed to update tray timer:', err);
                 });
             } catch (error) {
@@ -209,15 +162,23 @@ export function Pomodoro() {
             setTimerState(newState);
             await saveActiveTimer(newState);
         } else {
-            // Start timer
-            const newState = { ...timerState, isRunning: true };
+            // Start timer (if timeLeft is 0, e.g. after restore from expired timer, use full duration)
+            const timeLeft =
+                timerState.timeLeft > 0
+                    ? timerState.timeLeft
+                    : getPhaseDuration(timerState.phase);
+            const newState = {
+                ...timerState,
+                isRunning: true,
+                timeLeft,
+            };
             setTimerState(newState);
             await saveActiveTimer(newState);
 
-            // Create session if starting focus time
+            // Create session if starting focus time (full duration or recovered from 0)
             if (
                 timerState.phase === 'focus' &&
-                timerState.timeLeft === getPhaseDuration('focus')
+                timeLeft === getPhaseDuration('focus')
             ) {
                 try {
                     const session: Omit<PomodoroSession, 'id'> = {
@@ -227,7 +188,7 @@ export function Pomodoro() {
                         duration: data?.settings.pomodoro.focusTime || 25,
                         completed: false,
                     };
-                    await window.electronAPI.createPomodoroSession(session);
+                    await api.createPomodoroSession(session);
                 } catch (error) {
                     console.error('Failed to create pomodoro session:', error);
                 }
@@ -252,8 +213,6 @@ export function Pomodoro() {
         let nextPhaseValue: TimerPhase;
         let newCycleCount = timerState.cycleCount;
 
-        console.log('nextPhase called, current phase:', currentPhase);
-
         if (currentPhase === 'focus') {
             // Complete the focus session
             try {
@@ -263,13 +222,10 @@ export function Pomodoro() {
                         s.date === today && s.phase === 'focus' && !s.completed,
                 );
                 if (sessions.length > 0) {
-                    await window.electronAPI.updatePomodoroSession(
-                        sessions[0].id,
-                        {
-                            completed: true,
-                            endTime: new Date().toTimeString().slice(0, 5),
-                        },
-                    );
+                    await api.updatePomodoroSession(sessions[0].id, {
+                        completed: true,
+                        endTime: new Date().toTimeString().slice(0, 5),
+                    });
                 }
             } catch (error) {
                 console.error('Failed to complete pomodoro session:', error);
@@ -291,29 +247,21 @@ export function Pomodoro() {
             (data.settings.pomodoro.autoStartBreaks &&
                 nextPhaseValue !== 'focus');
 
-        console.log(
-            'Transitioning to phase:',
-            nextPhaseValue,
-            'timeLeft:',
-            newTimeLeft,
-            'autoStart:',
-            shouldAutoStart,
-        );
-
         const newState = {
             ...timerState,
             phase: nextPhaseValue,
             timeLeft: newTimeLeft,
             cycleCount: newCycleCount,
+            totalSessionsToday:
+                currentPhase === 'focus'
+                    ? timerState.totalSessionsToday + 1
+                    : timerState.totalSessionsToday,
             isRunning: shouldAutoStart,
         };
 
         setTimerState(newState);
         await saveActiveTimer(newState);
-
-        // Reload data to get updated session count
-        loadData();
-    }, [data, timerState, loadData, getPhaseDuration, saveActiveTimer]);
+    }, [data, timerState, getPhaseDuration, saveActiveTimer]);
 
     // Timer effect
     useEffect(() => {
@@ -328,61 +276,7 @@ export function Pomodoro() {
                         // Timer completed
                         if (data?.settings.pomodoro.soundEnabled) {
                             try {
-                                // Play notification sound (browser API) - defensive approach
-                                // Skip audio in Electron to avoid system call issues
-                                const isElectron = !!window.electronAPI;
-
-                                if (
-                                    !isElectron &&
-                                    (typeof AudioContext !== 'undefined' ||
-                                        // biome-ignore lint/suspicious/noExplicitAny: this is a valid check
-                                        typeof (window as any)
-                                            .webkitAudioContext !== 'undefined')
-                                ) {
-                                    const AudioContextClass =
-                                        window.AudioContext ||
-                                        // biome-ignore lint/suspicious/noExplicitAny: this is a valid check
-                                        (window as any).webkitAudioContext;
-
-                                    // Create context and handle suspension state
-                                    const createAndPlaySound = async () => {
-                                        try {
-                                            const context =
-                                                new AudioContextClass();
-
-                                            // Resume context if suspended (required by modern browsers)
-                                            if (context.state === 'suspended') {
-                                                await context.resume();
-                                            }
-
-                                            // Small delay to ensure context is ready
-                                            setTimeout(() => {
-                                                if (
-                                                    context.state === 'running'
-                                                ) {
-                                                    playBeepSound(context);
-                                                }
-                                            }, 50);
-                                        } catch (contextError) {
-                                            console.warn(
-                                                'Audio context error:',
-                                                contextError,
-                                            );
-                                        }
-                                    };
-
-                                    createAndPlaySound();
-                                } else if (isElectron) {
-                                    // In Electron, play system sound
-                                    window.electronAPI
-                                        .playNotificationSound()
-                                        .catch((err) => {
-                                            console.warn(
-                                                'Could not play notification sound:',
-                                                err,
-                                            );
-                                        });
-                                }
+                                api.playNotificationSound();
                             } catch (audioError) {
                                 console.warn(
                                     'Could not initialize audio:',
@@ -457,7 +351,7 @@ export function Pomodoro() {
               }
             : null;
 
-        window.electronAPI.updateTrayTimer(activeTimer).catch((err) => {
+        api.updateTrayTimer(activeTimer).catch((err) => {
             console.warn('Failed to update tray timer:', err);
         });
     }, [
@@ -494,11 +388,11 @@ export function Pomodoro() {
                     totalDuration: getPhaseDuration(timerState.phase),
                     cycleCount: timerState.cycleCount,
                 };
-                window.electronAPI.saveAppData({ activeTimer }).catch((err) => {
+                api.saveAppData({ activeTimer }).catch((err) => {
                     console.error('Failed to save timer on unmount:', err);
                 });
                 // Update tray with current state
-                window.electronAPI.updateTrayTimer(activeTimer).catch((err) => {
+                api.updateTrayTimer(activeTimer).catch((err) => {
                     console.warn(
                         'Failed to update tray timer on unmount:',
                         err,

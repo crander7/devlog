@@ -1,9 +1,7 @@
-import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { db } from './index';
+import { db, sqlite } from './index';
 import * as schema from './schema';
 
-// Helper to parse JSON arrays
 const parseJsonArray = <T>(json: string): T[] => {
     try {
         return JSON.parse(json);
@@ -12,7 +10,6 @@ const parseJsonArray = <T>(json: string): T[] => {
     }
 };
 
-// Helper to stringify arrays
 const stringifyArray = (arr: unknown[]): string => JSON.stringify(arr);
 
 // Work Logs
@@ -37,7 +34,7 @@ export function createWorkLog(data: {
     startTime?: string;
     endTime?: string;
 }) {
-    const id = randomUUID();
+    const id = crypto.randomUUID();
     const now = Date.now();
 
     let duration: number | undefined;
@@ -79,19 +76,22 @@ export function updateWorkLog(
     if (data.startTime !== undefined) updates.startTime = data.startTime;
     if (data.endTime !== undefined) updates.endTime = data.endTime;
 
-    // Recalculate duration if times are provided
-    if (data.startTime && data.endTime) {
+    if (data.startTime || data.endTime) {
         const log = db
             .select()
             .from(schema.workLogs)
             .where(eq(schema.workLogs.id, id))
             .get();
         if (log) {
-            const start = new Date(`${log.date}T${data.startTime}`);
-            const end = new Date(`${log.date}T${data.endTime}`);
-            updates.duration = Math.floor(
-                (end.getTime() - start.getTime()) / (1000 * 60),
-            );
+            const startTimeStr = data.startTime ?? log.startTime;
+            const endTimeStr = data.endTime ?? log.endTime;
+            if (startTimeStr && endTimeStr) {
+                const start = new Date(`${log.date}T${startTimeStr}`);
+                const end = new Date(`${log.date}T${endTimeStr}`);
+                updates.duration = Math.floor(
+                    (end.getTime() - start.getTime()) / (1000 * 60),
+                );
+            }
         }
     }
 
@@ -117,7 +117,7 @@ export function getAllTodos() {
         dueDate: todo.dueDate ?? undefined,
         tags: parseJsonArray<string>(todo.tags),
         createdAt: todo.createdAt,
-        updatedAt: todo.createdAt, // We'll add updatedAt column later if needed
+        updatedAt: todo.createdAt,
     }));
 }
 
@@ -129,7 +129,7 @@ export function createTodo(data: {
     tags: string[];
     completed: boolean;
 }) {
-    const id = randomUUID();
+    const id = crypto.randomUUID();
     const now = Date.now();
 
     db.insert(schema.todos)
@@ -195,7 +195,7 @@ export function createNote(data: {
     tags: string[];
     pinned: boolean;
 }) {
-    const id = randomUUID();
+    const id = crypto.randomUUID();
     const now = Date.now();
 
     db.insert(schema.notes)
@@ -263,7 +263,7 @@ export function createHabit(data: {
     color: string;
     icon: string;
 }) {
-    const id = randomUUID();
+    const id = crypto.randomUUID();
     const now = Date.now();
 
     db.insert(schema.habits)
@@ -334,7 +334,7 @@ export function createPomodoroSession(data: {
     duration: number;
     completed: boolean;
 }) {
-    const id = randomUUID();
+    const id = crypto.randomUUID();
 
     db.insert(schema.pomodoroSessions)
         .values({
@@ -389,6 +389,7 @@ export function getSettings() {
 
     return {
         theme: settings.theme as 'light' | 'dark' | 'system',
+        clockInPromptOnLaunch: settings.clockInPromptOnLaunch ?? true,
         pomodoro: {
             focusTime: settings.pomodoroFocusTime,
             shortBreakTime: settings.pomodoroShortBreakTime,
@@ -408,6 +409,7 @@ export function getSettings() {
 export function updateSettings(
     data: Partial<{
         theme: 'light' | 'dark' | 'system';
+        clockInPromptOnLaunch: boolean;
         pomodoro: Partial<{
             focusTime: number;
             shortBreakTime: number;
@@ -419,7 +421,8 @@ export function updateSettings(
         }>;
     }>,
 ) {
-    const updates: Record<string, unknown> = {};
+    type SettingsUpdate = Partial<typeof schema.settings.$inferInsert>;
+    const updates: SettingsUpdate = {};
 
     if (data.theme !== undefined) updates.theme = data.theme;
     if (data.pomodoro?.focusTime !== undefined)
@@ -437,10 +440,21 @@ export function updateSettings(
     if (data.pomodoro?.soundEnabled !== undefined)
         updates.pomodoroSoundEnabled = data.pomodoro.soundEnabled;
 
-    db.update(schema.settings)
-        .set(updates)
-        .where(eq(schema.settings.id, 1))
-        .run();
+    if (Object.keys(updates).length > 0) {
+        db.update(schema.settings)
+            .set(updates)
+            .where(eq(schema.settings.id, 1))
+            .run();
+    }
+
+    // Persist clock-in prompt via raw SQL to avoid boolean serialization issues
+    if (data.clockInPromptOnLaunch !== undefined) {
+        sqlite
+            .prepare(
+                'UPDATE settings SET clock_in_prompt_on_launch = ? WHERE id = 1',
+            )
+            .run(data.clockInPromptOnLaunch ? 1 : 0);
+    }
 }
 
 // Active Timer
@@ -474,7 +488,6 @@ export function setActiveTimer(
     } | null,
 ) {
     if (data === null) {
-        // Clear timer
         db.update(schema.activeTimer)
             .set({
                 isRunning: false,

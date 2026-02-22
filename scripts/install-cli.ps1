@@ -23,7 +23,7 @@ New-Item -ItemType Directory -Force -Path "${env:ProgramFiles}\devlog" | Out-Nul
 # Create batch file
 @"
 @echo off
-node "$CliSource" %*
+bun "$CliSource" %*
 "@ | Out-File -FilePath $CliTarget -Encoding ASCII
 
 # Add to PATH (requires admin)

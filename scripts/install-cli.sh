@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Install DevLog CLI to PATH
-# This script creates a wrapper script to run the CLI from the Electron app
+# This script creates a wrapper script to run the CLI from the Electrobun app
 
 APP_NAME="DevLog"
 APP_DIR="/Applications/${APP_NAME}.app"
@@ -17,14 +17,14 @@ CLI_TARGET="/usr/local/bin/devlog"
 
 if [ ! -f "$CLI_SOURCE" ]; then
     echo "❌ CLI not found in app bundle at $CLI_SOURCE"
-    echo "Make sure you've built the app with: npm run electron:build"
+    echo "Make sure you've built the app with: bun run build:app"
     exit 1
 fi
 
 # Create wrapper script with shebang
 cat > "$CLI_TARGET" << EOF
 #!/bin/bash
-exec node "$CLI_SOURCE" "\$@"
+exec bun "$CLI_SOURCE" "\$@"
 EOF
 
 chmod +x "$CLI_TARGET"

@@ -1,101 +1,68 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
-import { exec } from 'node:child_process';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+import { Database } from 'bun:sqlite';
+import { existsSync, mkdirSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import readline from 'node:readline';
 
-interface WorkLogEntry {
-    id?: string;
-    date?: string;
-    description?: string;
-    tags?: string[];
-    startTime?: string;
-    endTime?: string;
-    duration?: number;
-    clockIn?: string;
-    clockOut?: string;
-    workDescription?: string;
-    timestamp: number;
-}
-
-// Get the same data file location as Electron app
-function getDataFile(): string {
+function getDbPath(): string {
     const platform = process.platform;
     let userDataPath: string;
 
     if (platform === 'darwin') {
-        userDataPath = path.join(
-            os.homedir(),
+        userDataPath = join(
+            homedir(),
             'Library',
             'Application Support',
             'devlog',
         );
     } else if (platform === 'win32') {
-        userDataPath = path.join(os.homedir(), 'AppData', 'Roaming', 'devlog');
+        userDataPath = join(homedir(), 'AppData', 'Roaming', 'devlog');
     } else {
-        userDataPath = path.join(os.homedir(), '.config', 'devlog');
+        userDataPath = join(homedir(), '.config', 'devlog');
     }
 
-    if (!fs.existsSync(userDataPath)) {
-        fs.mkdirSync(userDataPath, { recursive: true });
+    if (!existsSync(userDataPath)) {
+        mkdirSync(userDataPath, { recursive: true });
     }
 
-    return path.join(userDataPath, 'devlog.json');
+    return join(userDataPath, 'devlog.db');
 }
 
-function ensureDataFile(): void {
-    const dataFile = getDataFile();
-    if (!fs.existsSync(dataFile)) {
-        fs.writeFileSync(dataFile, JSON.stringify([], null, 2));
-    }
-}
+const db = new Database(getDbPath());
+db.exec('PRAGMA journal_mode = WAL;');
 
-function readWorkLog(): WorkLogEntry[] {
-    ensureDataFile();
-    const dataFile = getDataFile();
-    try {
-        const data = fs.readFileSync(dataFile, 'utf8');
-        return JSON.parse(data);
-    } catch (_error) {
-        return [];
-    }
-}
-
-function writeWorkLog(entries: WorkLogEntry[]): void {
-    ensureDataFile();
-    const dataFile = getDataFile();
-    fs.writeFileSync(dataFile, JSON.stringify(entries, null, 2));
-}
+db.exec(`
+    CREATE TABLE IF NOT EXISTS work_logs (
+        id TEXT PRIMARY KEY,
+        date TEXT NOT NULL,
+        description TEXT NOT NULL,
+        tags TEXT NOT NULL,
+        start_time TEXT,
+        end_time TEXT,
+        duration INTEGER,
+        created_at INTEGER NOT NULL
+    );
+`);
 
 function lockComputer(): void {
     const platform = process.platform;
 
     if (platform === 'darwin') {
-        exec(
-            'osascript -e \'tell application "System Events" to keystroke "q" using {control down, command down}\'',
-            (error) => {
-                if (error) {
-                    console.error('Error locking computer:', error.message);
-                }
-            },
-        );
+        Bun.spawn([
+            'osascript',
+            '-e',
+            'tell application "System Events" to keystroke "q" using {control down, command down}',
+        ]);
     } else if (platform === 'win32') {
-        exec('rundll32.exe user32.dll,LockWorkStation', (error) => {
-            if (error) {
-                console.error('Error locking computer:', error.message);
-            }
-        });
+        Bun.spawn(['rundll32.exe', 'user32.dll,LockWorkStation']);
     } else if (platform === 'linux') {
-        exec(
+        Bun.spawn([
+            'bash',
+            '-c',
             'gnome-screensaver-command -l || xdg-screensaver lock',
-            (error) => {
-                if (error) {
-                    console.error('Error locking computer:', error.message);
-                }
-            },
-        );
+        ]);
     }
 }
 
@@ -113,41 +80,45 @@ function promptInput(question: string): Promise<string> {
     });
 }
 
+function getLastWorkLog(): { description: string } | null {
+    const row = db
+        .prepare(
+            'SELECT description FROM work_logs ORDER BY created_at DESC LIMIT 1',
+        )
+        .get() as { description: string } | null;
+    return row ?? null;
+}
+
 async function clockIn(): Promise<void> {
-    const entries = readWorkLog();
     const now = new Date();
+    const lastLog = getLastWorkLog();
 
-    // Get the last clock out entry to show what was worked on
-    const lastClockOut = entries.filter((e) => e.clockOut).slice(-1)[0];
-
-    // Show where they left off
-    if (lastClockOut?.workDescription) {
-        console.log('📝 Last work session:', lastClockOut.workDescription);
+    if (lastLog?.description) {
+        console.log('📝 Last work session:', lastLog.description);
         console.log('');
     } else {
         console.log('📝 No previous work session found.');
         console.log('');
     }
 
-    // Prompt for what they intend to work on
     let intendedWork = '';
-    if (lastClockOut?.workDescription) {
+    if (lastLog?.description) {
         const answer = await promptInput(
-            `What do you intend to work on? (Enter to continue with "${lastClockOut.workDescription}"): `,
+            `What do you intend to work on? (Enter to continue with "${lastLog.description}"): `,
         );
-        intendedWork = answer || lastClockOut.workDescription;
+        intendedWork = answer || lastLog.description;
     } else {
         intendedWork = await promptInput('What do you intend to work on? ');
     }
 
-    const newEntry: WorkLogEntry = {
-        clockIn: now.toISOString(),
-        workDescription: intendedWork, // Store intended work with clock in
-        timestamp: now.getTime(),
-    };
+    const id = crypto.randomUUID();
+    const date = now.toISOString().split('T')[0];
+    const startTime = now.toTimeString().substring(0, 5);
 
-    entries.push(newEntry);
-    writeWorkLog(entries);
+    db.prepare(
+        `INSERT INTO work_logs (id, date, description, tags, start_time, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(id, date, intendedWork, '[]', startTime, now.getTime());
 
     console.log('');
     console.log('✅ Clocked in at', now.toLocaleString());
@@ -155,10 +126,8 @@ async function clockIn(): Promise<void> {
 }
 
 async function clockOut(): Promise<void> {
-    const entries = readWorkLog();
     const now = new Date();
 
-    // Prompt for what they were working on
     const workDescription = await promptInput('What were you working on? ');
 
     if (!workDescription.trim()) {
@@ -166,30 +135,20 @@ async function clockOut(): Promise<void> {
         process.exit(1);
     }
 
-    const newEntry: WorkLogEntry = {
-        clockOut: now.toISOString(),
-        workDescription: workDescription.trim(),
-        timestamp: now.getTime(),
-    };
+    const id = crypto.randomUUID();
+    const date = now.toISOString().split('T')[0];
+    const endTime = now.toTimeString().substring(0, 5);
 
-    // If there's a previous entry without a clock out, update it
-    if (entries.length > 0 && !entries[entries.length - 1].clockOut) {
-        entries[entries.length - 1] = {
-            ...entries[entries.length - 1],
-            ...newEntry,
-        };
-    } else {
-        entries.push(newEntry);
-    }
-
-    writeWorkLog(entries);
+    db.prepare(
+        `INSERT INTO work_logs (id, date, description, tags, end_time, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(id, date, workDescription.trim(), '[]', endTime, now.getTime());
 
     console.log('');
     console.log('✅ Clocked out at', now.toLocaleString());
-    console.log('📝 Work description:', newEntry.workDescription);
+    console.log('📝 Work description:', workDescription.trim());
     console.log('🔒 Locking computer...');
 
-    // Lock computer after saving
     lockComputer();
 }
 
@@ -198,15 +157,15 @@ function showHelp(): void {
 DevLog CLI - Clock in and out of work
 
 Usage:
-  npm run ci              Clock in (will prompt for intended work)
-  npm run co              Clock out (will prompt for work description)
-  npm run cli help        Show this help message
+  bun run ci              Clock in (will prompt for intended work)
+  bun run co              Clock out (will prompt for work description)
+  bun run cli help        Show this help message
 
 Examples:
-  npm run ci              # Clock in, see last session, enter new work
-  npm run co              # Clock out, enter what you were working on
+  bun run ci              # Clock in, see last session, enter new work
+  bun run co              # Clock out, enter what you were working on
 
-The CLI uses the same data file as the Electron app, so you can switch
+The CLI uses the same SQLite database as the DevLog app, so you can switch
 between CLI and GUI seamlessly.
 
 When clocking in:
@@ -220,7 +179,6 @@ When clocking out:
 `);
 }
 
-// Main CLI logic
 const command = process.argv[2];
 
 (async () => {
@@ -246,8 +204,10 @@ const command = process.argv[2];
                 showHelp();
             } else {
                 console.error(`Unknown command: ${command}`);
-                console.log('Run "npm run cli help" for usage information.');
+                console.log('Run "bun run cli help" for usage information.');
                 process.exit(1);
             }
     }
+
+    db.close();
 })();

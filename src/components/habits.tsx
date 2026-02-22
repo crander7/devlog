@@ -1,5 +1,15 @@
 import { Check, Flame, Plus, Target, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -20,7 +30,13 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import type { AppData, Habit } from '@/types/electron';
+import { api } from '@/lib/api';
+import {
+    getHabitLongestStreak,
+    getHabitStreak,
+    isHabitCompletedToday,
+} from '@/lib/utils';
+import type { AppData, Habit } from '@/shared/rpc-types';
 
 interface HabitFormData {
     name: string;
@@ -37,7 +53,7 @@ export function Habits() {
 
     const loadData = useCallback(async () => {
         try {
-            const appData = await window.electronAPI.getAppData();
+            const appData = await api.getAppData();
             setData(appData);
         } catch (error) {
             console.error('Failed to load habits:', error);
@@ -67,7 +83,7 @@ export function Habits() {
 
     const handleSubmit = async () => {
         try {
-            await window.electronAPI.createHabit({
+            await api.createHabit({
                 name: formData.name,
                 description: formData.description,
             });
@@ -78,24 +94,23 @@ export function Habits() {
         }
     };
 
-    const handleDelete = async (habitId: string) => {
-        if (
-            confirm(
-                'Are you sure you want to delete this habit? This will reset all your progress.',
-            )
-        ) {
-            try {
-                await window.electronAPI.deleteHabit(habitId);
-                await loadData();
-            } catch (error) {
-                console.error('Failed to delete habit:', error);
-            }
+    const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+
+    const confirmDelete = async () => {
+        if (!pendingDeleteId) return;
+        try {
+            await api.deleteHabit(pendingDeleteId);
+            await loadData();
+        } catch (error) {
+            console.error('Failed to delete habit:', error);
+        } finally {
+            setPendingDeleteId(null);
         }
     };
 
     const completeHabit = async (habit: Habit) => {
         try {
-            await window.electronAPI.completeHabit(habit.id);
+            await api.completeHabit(habit.id);
             await loadData();
         } catch (error) {
             console.error('Failed to complete habit:', error);
@@ -125,7 +140,7 @@ export function Habits() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {[...Array(4)].map((_, index) => (
                             <div
-                                key={`loading-habit-${index.toString()}-${Math.random()}`}
+                                key={`loading-habit-${index.toString()}`}
                                 className="h-24 bg-muted rounded"
                             ></div>
                         ))}
@@ -135,9 +150,8 @@ export function Habits() {
         );
     }
 
-    const today = new Date().toISOString().split('T')[0];
-    const todaysCompletedHabits = data.habits.filter(
-        (habit) => habit.lastCompleted === today,
+    const todaysCompletedHabits = data.habits.filter((habit) =>
+        isHabitCompletedToday(habit.completedDates),
     ).length;
 
     return (
@@ -247,15 +261,19 @@ export function Habits() {
             {/* Habits Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {data.habits.map((habit) => {
-                    const isCompletedToday = habit.lastCompleted === today;
-                    const isStreakBroken =
-                        habit.lastCompleted && habit.lastCompleted !== today;
+                    const completedToday = isHabitCompletedToday(
+                        habit.completedDates,
+                    );
+                    const streak = getHabitStreak(habit.completedDates);
+                    const longestStreak = getHabitLongestStreak(
+                        habit.completedDates,
+                    );
 
                     return (
                         <Card
                             key={habit.id}
                             className={
-                                isCompletedToday ? 'ring-2 ring-green-500' : ''
+                                completedToday ? 'ring-2 ring-green-500' : ''
                             }
                         >
                             <CardHeader className="pb-3">
@@ -273,7 +291,9 @@ export function Habits() {
                                     <Button
                                         variant="ghost"
                                         size="sm"
-                                        onClick={() => handleDelete(habit.id)}
+                                        onClick={() =>
+                                            setPendingDeleteId(habit.id)
+                                        }
                                         className="text-muted-foreground hover:text-destructive"
                                     >
                                         <Trash2 className="h-4 w-4" />
@@ -285,19 +305,19 @@ export function Habits() {
                                     {/* Streak Display */}
                                     <div className="flex items-center gap-2">
                                         <Flame
-                                            className={`h-4 w-4 ${getStreakColor(habit.streak)}`}
+                                            className={`h-4 w-4 ${getStreakColor(streak)}`}
                                         />
                                         <span
-                                            className={`text-sm font-medium ${getStreakColor(habit.streak)}`}
+                                            className={`text-sm font-medium ${getStreakColor(streak)}`}
                                         >
-                                            {getStreakLabel(habit.streak)}
+                                            {getStreakLabel(streak)}
                                         </span>
-                                        {habit.longestStreak > habit.streak && (
+                                        {longestStreak > streak && (
                                             <Badge
                                                 variant="outline"
                                                 className="text-xs"
                                             >
-                                                Best: {habit.longestStreak}
+                                                Best: {longestStreak}
                                             </Badge>
                                         )}
                                     </div>
@@ -305,13 +325,13 @@ export function Habits() {
                                     {/* Completion Status */}
                                     <div className="flex items-center justify-between">
                                         <div className="text-sm text-muted-foreground">
-                                            {isCompletedToday ? (
+                                            {completedToday ? (
                                                 <span className="text-green-600 font-medium">
                                                     ✓ Completed today
                                                 </span>
-                                            ) : isStreakBroken ? (
+                                            ) : streak === 0 ? (
                                                 <span className="text-orange-600">
-                                                    Streak broken yesterday
+                                                    No active streak
                                                 </span>
                                             ) : (
                                                 <span>Not completed today</span>
@@ -320,14 +340,14 @@ export function Habits() {
                                         <Button
                                             size="sm"
                                             onClick={() => completeHabit(habit)}
-                                            disabled={isCompletedToday}
+                                            disabled={completedToday}
                                             variant={
-                                                isCompletedToday
+                                                completedToday
                                                     ? 'secondary'
                                                     : 'default'
                                             }
                                         >
-                                            {isCompletedToday ? (
+                                            {completedToday ? (
                                                 <Check className="h-4 w-4" />
                                             ) : (
                                                 'Complete'
@@ -353,6 +373,31 @@ export function Habits() {
                     </Button>
                 </div>
             )}
+            <AlertDialog
+                open={pendingDeleteId !== null}
+                onOpenChange={(open) => {
+                    if (!open) setPendingDeleteId(null);
+                }}
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete habit</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to delete this habit? This
+                            will reset all your progress and cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={confirmDelete}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                            Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }

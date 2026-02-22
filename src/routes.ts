@@ -3,8 +3,7 @@ import { createHashHistory, createRouter } from '@tanstack/react-router';
 // Import the generated route tree
 import { routeTree } from './routeTree.gen';
 
-// Create a new router instance with hash history for Electron
-// Hash routing works better with file:// protocol in production
+// Hash routing works with the views:// protocol in production builds
 export const router = createRouter({
     routeTree,
     history: createHashHistory(),

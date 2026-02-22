@@ -13,7 +13,8 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import type { AppData, AppSettings } from '@/types/electron';
+import { api } from '@/lib/api';
+import type { AppData, AppSettings } from '@/shared/rpc-types';
 
 export function Settings() {
     const [data, setData] = useState<AppData | null>(null);
@@ -23,7 +24,7 @@ export function Settings() {
 
     const loadData = useCallback(async () => {
         try {
-            const appData = await window.electronAPI.getAppData();
+            const appData = await api.getAppData();
             setData(appData);
             setSettings(appData.settings);
         } catch (error) {
@@ -66,7 +67,7 @@ export function Settings() {
     const saveSettings = async () => {
         if (!settings) return;
         try {
-            await window.electronAPI.updateSettings(settings);
+            await api.updateSettings(settings);
             await loadData();
             setHasChanges(false);
         } catch (error) {
@@ -77,6 +78,7 @@ export function Settings() {
     const resetToDefaults = () => {
         const defaultSettings: AppSettings = {
             theme: 'system',
+            clockInPromptOnLaunch: true,
             pomodoro: {
                 focusTime: 25,
                 shortBreakTime: 5,
@@ -103,7 +105,7 @@ export function Settings() {
                     <div className="space-y-4">
                         {[...Array(4)].map((_, index) => (
                             <div
-                                key={`loading-setting-${index.toString()}-${Math.random()}`}
+                                key={`loading-setting-${index.toString()}`}
                                 className="h-24 bg-muted rounded"
                             ></div>
                         ))}
@@ -185,6 +187,36 @@ export function Settings() {
                                 System
                             </Button>
                         </div>
+                    </div>
+                </CardContent>
+            </Card>
+
+            {/* Work Log */}
+            <Card>
+                <CardHeader>
+                    <CardTitle>Work Log</CardTitle>
+                    <CardDescription>
+                        Configure clock-in and clock-out behavior.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <Label className="text-sm font-medium">
+                                Clock-in prompt on launch
+                            </Label>
+                            <p className="text-sm text-muted-foreground">
+                                Show a dialog on app start to clock in or out
+                            </p>
+                        </div>
+                        <Switch
+                            checked={settings.clockInPromptOnLaunch}
+                            onCheckedChange={(checked: boolean) =>
+                                updateSettings({
+                                    clockInPromptOnLaunch: checked,
+                                })
+                            }
+                        />
                     </div>
                 </CardContent>
             </Card>

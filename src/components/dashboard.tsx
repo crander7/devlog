@@ -1,7 +1,16 @@
 import { useNavigate } from '@tanstack/react-router';
 import { format, parseISO, startOfToday } from 'date-fns';
-import { CheckSquare, Clock, StickyNote, Target, Timer } from 'lucide-react';
+import {
+    CheckSquare,
+    Clock,
+    LogIn,
+    LogOut,
+    StickyNote,
+    Target,
+    Timer,
+} from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { ClockOutDialog } from '@/components/clock-out-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -12,22 +21,58 @@ import {
     CardTitle,
 } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import type { AppData } from '@/types/electron';
+import { api } from '@/lib/api';
+import { isHabitCompletedToday } from '@/lib/utils';
+import type { AppData, WorkLogEntry } from '@/shared/rpc-types';
 
-// Helper function to strip HTML tags for preview
+const BLOCK_TAGS = new Set([
+    'P',
+    'DIV',
+    'H1',
+    'H2',
+    'H3',
+    'H4',
+    'H5',
+    'H6',
+    'LI',
+    'BR',
+    'BLOCKQUOTE',
+    'PRE',
+    'TR',
+]);
+
+function extractText(node: Node, parts: string[]): void {
+    if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent?.trim();
+        if (text) parts.push(text);
+        return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const el = node as Element;
+    if (BLOCK_TAGS.has(el.tagName) && parts.length > 0) {
+        parts.push(' ');
+    }
+    for (const child of el.childNodes) {
+        extractText(child, parts);
+    }
+}
+
 const stripHtml = (html: string): string => {
     const tmp = document.createElement('div');
     tmp.innerHTML = html;
-    return tmp.textContent || tmp.innerText || '';
+    const parts: string[] = [];
+    extractText(tmp, parts);
+    return parts.join('').replace(/\s+/g, ' ').trim();
 };
 
 export function Dashboard() {
     const [data, setData] = useState<AppData | null>(null);
+    const [clockOutOpen, setClockOutOpen] = useState(false);
     const navigate = useNavigate();
 
     const loadData = useCallback(async () => {
         try {
-            const appData = await window.electronAPI.getAppData();
+            const appData = await api.getAppData();
             setData(appData);
         } catch (error) {
             console.error('Failed to load dashboard data:', error);
@@ -36,7 +81,43 @@ export function Dashboard() {
 
     useEffect(() => {
         loadData();
+
+        const onClockChange = () => loadData();
+        window.addEventListener('clock-state-changed', onClockChange);
+        return () =>
+            window.removeEventListener('clock-state-changed', onClockChange);
     }, [loadData]);
+
+    const activeSession: WorkLogEntry | undefined = data?.workLogs.find(
+        (log) => log.startTime && !log.endTime,
+    );
+
+    const lastCompletedSession: WorkLogEntry | undefined = data?.workLogs
+        .filter((log) => log.startTime && log.endTime)
+        .sort((a, b) => b.timestamp - a.timestamp)[0];
+
+    const handleClockIn = async () => {
+        const now = new Date();
+        await api.createWorkLog({
+            date: format(now, 'yyyy-MM-dd'),
+            description: '',
+            tags: [],
+            startTime: format(now, 'HH:mm'),
+        });
+        await loadData();
+    };
+
+    const handleClockOut = async (description: string, tags: string[]) => {
+        if (!activeSession) return;
+        const now = new Date();
+        await api.updateWorkLog(activeSession.id, {
+            description,
+            tags,
+            endTime: format(now, 'HH:mm'),
+        });
+        setClockOutOpen(false);
+        await loadData();
+    };
 
     if (!data) {
         return (
@@ -46,7 +127,7 @@ export function Dashboard() {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {[...Array(6)].map((_, index) => (
                             <div
-                                key={`loading-card-${index.toString()}-${Math.random()}`}
+                                key={`loading-card-${index.toString()}`}
                                 className="h-32 bg-muted rounded"
                             ></div>
                         ))}
@@ -88,14 +169,38 @@ export function Dashboard() {
 
             {/* Quick Actions */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <Button
-                    className="h-20 flex flex-col gap-2"
-                    size="lg"
-                    onClick={() => navigate({ to: '/work-log' })}
-                >
-                    <Clock className="h-6 w-6" />
-                    <span>Clock In</span>
-                </Button>
+                {activeSession ? (
+                    <div className="flex flex-col gap-1">
+                        <Button
+                            className="h-20 flex flex-col gap-2"
+                            variant="destructive"
+                            size="lg"
+                            onClick={() => setClockOutOpen(true)}
+                        >
+                            <LogOut className="h-6 w-6" />
+                            <span>Clock Out</span>
+                        </Button>
+                        <p className="text-xs text-muted-foreground text-center">
+                            Clocked in since {activeSession.startTime}
+                        </p>
+                    </div>
+                ) : (
+                    <div className="flex flex-col gap-1">
+                        <Button
+                            className="h-20 flex flex-col gap-2"
+                            size="lg"
+                            onClick={handleClockIn}
+                        >
+                            <LogIn className="h-6 w-6" />
+                            <span>Clock In</span>
+                        </Button>
+                        {lastCompletedSession && (
+                            <p className="text-xs text-muted-foreground text-center truncate max-w-[200px] mx-auto">
+                                Last: {lastCompletedSession.description}
+                            </p>
+                        )}
+                    </div>
+                )}
                 <Button
                     variant="outline"
                     className="h-20 flex flex-col gap-2"
@@ -135,7 +240,7 @@ export function Dashboard() {
                         <Clock className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">
+                        <div className="text-2xl font-bold text-primary">
                             {todaysWorkLogs.length}
                         </div>
                         <p className="text-xs text-muted-foreground">
@@ -155,7 +260,7 @@ export function Dashboard() {
                         <CheckSquare className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">
+                        <div className="text-2xl font-bold text-primary">
                             {completedTodosToday}/{totalTodosToday}
                         </div>
                         <Progress
@@ -181,7 +286,7 @@ export function Dashboard() {
                         <Timer className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">
+                        <div className="text-2xl font-bold text-primary">
                             {todaysPomodoroSessions.length}
                         </div>
                         <p className="text-xs text-muted-foreground">
@@ -203,10 +308,10 @@ export function Dashboard() {
                         <Target className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">
+                        <div className="text-2xl font-bold text-primary">
                             {
-                                data.habits.filter(
-                                    (h) => h.lastCompleted === todayStr,
+                                data.habits.filter((h) =>
+                                    isHabitCompletedToday(h.completedDates),
                                 ).length
                             }
                             /{data.habits.length}
@@ -266,9 +371,21 @@ export function Dashboard() {
                                     </div>
                                 ))}
                             {data.workLogs.length === 0 && (
-                                <p className="text-sm text-muted-foreground">
-                                    No work sessions yet
-                                </p>
+                                <div className="text-center py-4">
+                                    <Clock className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                                    <p className="text-sm text-muted-foreground mb-3">
+                                        No work sessions yet
+                                    </p>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() =>
+                                            navigate({ to: '/work-log' })
+                                        }
+                                    >
+                                        Log your first session
+                                    </Button>
+                                </div>
                             )}
                         </div>
                     </CardContent>
@@ -287,7 +404,7 @@ export function Dashboard() {
                             {pinnedNotes.map((note) => (
                                 <button
                                     key={note.id}
-                                    className="p-3 bg-muted rounded-md cursor-pointer hover:bg-muted/80 transition-colors"
+                                    className="w-full text-left p-3 bg-muted rounded-md cursor-pointer hover:bg-muted/80 hover:ring-1 hover:ring-primary/30 transition-all"
                                     onClick={() => navigate({ to: '/notes' })}
                                     onKeyDown={(e) => {
                                         if (
@@ -310,9 +427,21 @@ export function Dashboard() {
                                 </button>
                             ))}
                             {pinnedNotes.length === 0 && (
-                                <p className="text-sm text-muted-foreground">
-                                    No pinned notes
-                                </p>
+                                <div className="text-center py-4">
+                                    <StickyNote className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                                    <p className="text-sm text-muted-foreground mb-3">
+                                        No pinned notes
+                                    </p>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() =>
+                                            navigate({ to: '/notes' })
+                                        }
+                                    >
+                                        Create a note
+                                    </Button>
+                                </div>
                             )}
                         </div>
                     </CardContent>
@@ -380,13 +509,30 @@ export function Dashboard() {
                             ))}
                         {data.todos.filter((todo) => !todo.completed).length ===
                             0 && (
-                            <p className="text-sm text-muted-foreground">
-                                No pending todos
-                            </p>
+                            <div className="text-center py-4">
+                                <CheckSquare className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                                <p className="text-sm text-muted-foreground mb-3">
+                                    No pending todos
+                                </p>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => navigate({ to: '/todos' })}
+                                >
+                                    Add a todo
+                                </Button>
+                            </div>
                         )}
                     </div>
                 </CardContent>
             </Card>
+
+            <ClockOutDialog
+                open={clockOutOpen}
+                onOpenChange={setClockOutOpen}
+                onClockOut={handleClockOut}
+                clockedInSince={activeSession?.startTime}
+            />
         </div>
     );
 }

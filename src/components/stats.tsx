@@ -17,14 +17,16 @@ import {
     CardTitle,
 } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import type { AppData } from '@/types/electron';
+import { api } from '@/lib/api';
+import { getHabitLongestStreak, getHabitStreak } from '@/lib/utils';
+import type { AppData } from '@/shared/rpc-types';
 
 export function Stats() {
     const [data, setData] = useState<AppData | null>(null);
 
     const loadData = useCallback(async () => {
         try {
-            const appData = await window.electronAPI.getAppData();
+            const appData = await api.getAppData();
             setData(appData);
         } catch (error) {
             console.error('Failed to load stats data:', error);
@@ -43,7 +45,7 @@ export function Stats() {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                         {[...Array(8)].map((_, index) => (
                             <div
-                                key={`loading-stat-${index.toString()}-${Math.random()}`}
+                                key={`loading-stat-${index.toString()}`}
                                 className="h-32 bg-muted rounded"
                             ></div>
                         ))}
@@ -195,7 +197,11 @@ export function Stats() {
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold">
-                            {data.habits.filter((h) => h.streak > 0).length}
+                            {
+                                data.habits.filter(
+                                    (h) => getHabitStreak(h.completedDates) > 0,
+                                ).length
+                            }
                         </div>
                         <p className="text-xs text-muted-foreground">
                             active streaks
@@ -270,51 +276,58 @@ export function Stats() {
                     </CardHeader>
                     <CardContent>
                         <div className="space-y-4">
-                            {data.habits.map((habit) => (
-                                <div
-                                    key={habit.id}
-                                    className="flex items-center justify-between p-3 border rounded-lg"
-                                >
-                                    <div>
-                                        <div className="font-medium">
-                                            {habit.name}
-                                        </div>
-                                        <div className="text-sm text-muted-foreground">
-                                            Current streak: {habit.streak} days
-                                            {habit.longestStreak >
-                                                habit.streak && (
-                                                <span>
-                                                    {' '}
-                                                    • Best:{' '}
-                                                    {habit.longestStreak} days
-                                                </span>
-                                            )}
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <Badge
-                                            variant={
-                                                habit.streak > 0
-                                                    ? 'default'
-                                                    : 'secondary'
-                                            }
-                                        >
-                                            {habit.streak > 0
-                                                ? 'Active'
-                                                : 'Inactive'}
-                                        </Badge>
-                                        <div className="w-24">
-                                            <Progress
-                                                value={Math.min(
-                                                    (habit.streak / 30) * 100,
-                                                    100,
+                            {data.habits.map((habit) => {
+                                const streak = getHabitStreak(
+                                    habit.completedDates,
+                                );
+                                const longestStreak = getHabitLongestStreak(
+                                    habit.completedDates,
+                                );
+                                return (
+                                    <div
+                                        key={habit.id}
+                                        className="flex items-center justify-between p-3 border rounded-lg"
+                                    >
+                                        <div>
+                                            <div className="font-medium">
+                                                {habit.name}
+                                            </div>
+                                            <div className="text-sm text-muted-foreground">
+                                                Current streak: {streak} days
+                                                {longestStreak > streak && (
+                                                    <span>
+                                                        {' '}
+                                                        • Best: {longestStreak}{' '}
+                                                        days
+                                                    </span>
                                                 )}
-                                                className="h-2"
-                                            />
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <Badge
+                                                variant={
+                                                    streak > 0
+                                                        ? 'default'
+                                                        : 'secondary'
+                                                }
+                                            >
+                                                {streak > 0
+                                                    ? 'Active'
+                                                    : 'Inactive'}
+                                            </Badge>
+                                            <div className="w-24">
+                                                <Progress
+                                                    value={Math.min(
+                                                        (streak / 30) * 100,
+                                                        100,
+                                                    )}
+                                                    className="h-2"
+                                                />
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </CardContent>
                 </Card>
