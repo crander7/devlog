@@ -470,7 +470,7 @@ export function Settings() {
                             <span className="text-sm font-medium">
                                 Version:
                             </span>
-                            <Badge variant="secondary">1.0.0</Badge>
+                            <Badge variant="secondary">{__APP_VERSION__}</Badge>
                         </div>
                         <div className="flex justify-between">
                             <span className="text-sm font-medium">

@@ -1,10 +1,11 @@
 import type { ElectrobunConfig } from 'electrobun';
+import { version } from './package.json';
 
 export default {
     app: {
         name: 'DevLog',
         identifier: 'com.devlog.app',
-        version: '1.0.0',
+        version,
     },
     runtime: {
         exitOnLastWindowClosed: false,
