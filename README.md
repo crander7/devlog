@@ -1,159 +1,120 @@
-# DevLog - Electron App
+# DevLog
 
-A modern Electron application built with TypeScript, React, Vite, and shadcn/ui for clocking in and out of work, with automatic computer locking on clock out.
+A modern desktop application built with Electrobun (Bun runtime), React, and shadcn/ui for tracking work sessions, todos, notes, habits, and pomodoro focus time.
 
 ## Tech Stack
 
-- **Electron** - Desktop app framework
-- **React** - UI library
+- **Electrobun** - Lightweight desktop app framework (Bun runtime + native webview)
+- **Bun** - JavaScript/TypeScript runtime
+- **React 18** - UI library
 - **TypeScript** - Type safety
-- **Vite** - Build tool and dev server
-- **shadcn/ui** - Beautiful UI components
+- **Vite** - Frontend build tool
+- **shadcn/ui** - UI component library (Radix + Tailwind)
 - **Tailwind CSS** - Styling
-- **TanStack Router** - (Available for routing if needed)
+- **TanStack Router** - Client-side routing
+- **Drizzle ORM** - SQLite database (via `bun:sqlite`)
+- **Tiptap** - Rich text editor
 
 ## Features
 
-- **Clock In**: Record when you start working and see what you were last working on
-- **Clock Out**: Record what you were working on, save it to a file, and automatically lock your computer
-- **Work History**: View your recent clock in/out entries
-- **Data Persistence**: All entries are saved to a JSON file in your app data directory
-- **Modern UI**: Beautiful interface built with shadcn/ui components
+- **Work Log**: Clock in/out, track work sessions with descriptions and tags
+- **Todos**: Task management with priorities, due dates, and tags
+- **Notes**: Rich text notes with pinning and search
+- **Habits**: Daily/weekly/monthly habit tracking
+- **Pomodoro Timer**: Focus sessions with configurable intervals, system tray integration
+- **Dashboard**: Overview of today's productivity
+- **Statistics**: Weekly breakdown and habit performance
+- **System Tray**: Timer display in menubar
+- **CLI**: Terminal-based clock in/out that shares the same database
+- **Dark Mode**: Full theme support
 
 ## Installation
 
-1. Install dependencies:
-
 ```bash
-npm install
+bun install
 ```
 
 ## Running the App
 
-### Command Line Interface (CLI)
+### Development (with HMR)
 
-The CLI is **automatically installed** when you first launch the Electron app! You'll see a notification confirming the installation.
-
-You can use the CLI to clock in and out from the terminal with interactive prompts:
+For live UI updates in one terminal, run:
 
 ```bash
-# Clock in - Shows last work session and prompts for intended work
-devlog ci
+# Ensure the app is built once (only needed first time or after clean)
+bun run dev:build
 
-# Clock out - Prompts for what you were working on
-devlog co
+# Then run Vite + Electrobun in parallel (single terminal, HMR)
+bun run dev:hmr
 ```
 
-**Automatic Installation:**
+`dev:hmr` uses `npm-run-all2` to run the Vite dev server and Electrobun in parallel; the app window loads from `http://localhost:5173` and hot-reloads on save.
 
-- On first launch, the app automatically installs the CLI to your PATH
-- **macOS**: Installs to `/usr/local/bin/devlog` (or `~/.local/bin/devlog` if permissions are needed)
-- **Windows**: Installs to `%LOCALAPPDATA%\devlog\devlog.bat` and adds to PATH
-- **Linux**: Installs to `~/.local/bin/devlog`
+Alternatively, use two terminals: `bun run dev:vite` in one, then `USE_VITE_DEV=1 bun run dev:electrobun` in the other.
 
-**Clock In Flow:**
+Note: `bun run dev` builds the frontend and runs the app using the **bundled** UI (no Vite server). Use `dev:hmr` when you want live UI updates.
 
-1. Shows your last work session (where you left off)
-2. Prompts: "What do you intend to work on?"
-3. If you press Enter, continues with last session's work
-4. If you type something, uses that as your intended work
-
-**Clock Out Flow:**
-
-1. Prompts: "What were you working on?"
-2. Saves your work description
-3. Locks your computer
-
-The CLI uses the same data file as the Electron app, so you can seamlessly switch between CLI and GUI.
-
-**Development Mode:**
-If you're developing, you can use npm scripts:
+Or build once and run (first run downloads Electrobun core binaries and builds the app bundle; later runs are quicker):
 
 ```bash
-npm run ci  # Clock in
-npm run co  # Clock out
+bun run dev
 ```
-
-### Electron App - Development Mode
-
-```bash
-npm run electron:dev
-```
-
-This will:
-
-1. Start the Vite dev server on `http://localhost:5173`
-2. Wait for the server to be ready
-3. Launch Electron with DevTools open
 
 ### Production Build
 
 ```bash
-npm run build
-npm run electron
+bun run build:app
 ```
 
-### Building for Distribution
+This builds the React frontend with Vite, then packages everything with Electrobun into a ~14MB native app.
+
+### CLI
+
+The CLI uses the same SQLite database as the GUI:
 
 ```bash
-npm run electron:build
+# Clock in
+bun run ci
+
+# Clock out
+bun run co
+
+# Help
+bun run cli help
 ```
-
-## How It Works
-
-- **Clock In**: Click the "Clock In" button to start a work session. The app will show you what you were last working on (from your previous clock out).
-
-- **Clock Out**: Click the "Clock Out" button, enter a description of what you were working on, and click "Submit & Lock". The app will:
-  1. Save your work description to a JSON file
-  2. Automatically lock your computer (platform-specific)
 
 ## Data Storage
 
-Devlog entries are stored in a JSON file located at:
+Data is stored in a SQLite database at:
 
-- **macOS**: `~/Library/Application Support/devlog/devlog.json`
-- **Windows**: `%APPDATA%/devlog/devlog.json`
-- **Linux**: `~/.config/devlog/devlog.json`
-
-## Computer Locking
-
-The app automatically locks your computer when you clock out:
-
-- **macOS**: Uses `pmset displaysleepnow`
-- **Windows**: Uses `rundll32.exe user32.dll,LockWorkStation`
-- **Linux**: Uses `gnome-screensaver-command` or `xdg-screensaver`
+- **macOS**: `~/Library/Application Support/devlog/devlog.db`
+- **Windows**: `%APPDATA%/devlog/devlog.db`
+- **Linux**: `~/.config/devlog/devlog.db`
 
 ## Project Structure
 
 ```
 devlog/
-├── electron/          # Electron main process and preload scripts
-│   ├── main.ts       # Main Electron process (TypeScript)
-│   └── preload.ts    # Preload script for secure IPC
-├── src/              # React application
-│   ├── components/   # React components
-│   │   └── ui/      # shadcn/ui components
-│   ├── lib/         # Utility functions
-│   ├── App.tsx      # Main React component
-│   ├── main.tsx     # React entry point
-│   └── index.css    # Global styles with Tailwind
-├── index.html        # HTML template
-├── vite.config.ts    # Vite configuration
-├── tsconfig.json    # TypeScript configuration
-└── tailwind.config.js # Tailwind CSS configuration
+├── src/
+│   ├── bun/               # Electrobun main process
+│   │   ├── index.ts       # Window, tray, RPC handlers
+│   │   └── db/            # Database layer
+│   │       ├── schema.ts          # Drizzle ORM schema
+│   │       ├── index.ts           # DB init (bun:sqlite)
+│   │       ├── handlers.ts        # CRUD operations
+│   │       └── migrate-from-json.ts # Legacy JSON→SQLite migration
+│   ├── shared/
+│   │   └── rpc-types.ts   # Typed RPC schema (shared between bun & view)
+│   ├── components/        # React components
+│   │   └── ui/            # shadcn/ui primitives
+│   ├── routes/            # TanStack Router pages
+│   ├── lib/
+│   │   ├── api.ts         # Frontend RPC wrapper
+│   │   └── utils.ts       # Utilities
+│   ├── main.tsx           # React entry point
+│   └── cli.ts             # CLI tool
+├── electrobun.config.ts   # Electrobun build config
+├── vite.config.ts         # Vite config (frontend only)
+├── tailwind.config.js     # Tailwind CSS config
+└── biome.json             # Linter/formatter config
 ```
-
-## Notes
-
-- **TanStack Start**: This project uses React with Vite rather than TanStack Start, as TanStack Start is designed for full-stack SSR applications and isn't ideal for Electron apps. If you specifically need TanStack Start features, we can discuss alternatives or adaptations.
-
-- **shadcn/ui**: Components are installed and ready to use. You can add more components using the shadcn CLI if needed.
-
-## Development
-
-The app uses:
-
-- **TypeScript** for type safety throughout
-- **Vite** for fast HMR during development
-- **ESM modules** for modern JavaScript
-- **Path aliases** (`@/`) for cleaner imports

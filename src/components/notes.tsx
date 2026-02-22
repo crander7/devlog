@@ -1,6 +1,16 @@
 import DOMPurify from 'dompurify';
 import { Edit2, Pin, Plus, Search, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -22,7 +32,8 @@ import {
 import { Input } from '@/components/ui/input';
 import { RichTextEditor } from '@/components/ui/rich-text-editor';
 import { useDebounce } from '@/hooks/use-debounce';
-import type { AppData, Note } from '@/types/electron';
+import { api } from '@/lib/api';
+import type { AppData, Note } from '@/shared/rpc-types';
 
 interface NoteFormData {
     title: string;
@@ -46,7 +57,7 @@ export function Notes() {
 
     const loadData = useCallback(async () => {
         try {
-            const appData = await window.electronAPI.getAppData();
+            const appData = await api.getAppData();
             setData(appData);
         } catch (error) {
             console.error('Failed to load notes:', error);
@@ -101,7 +112,7 @@ export function Notes() {
         try {
             if (editingNote) {
                 // Update existing note
-                await window.electronAPI.updateNote(editingNote.id, {
+                await api.updateNote(editingNote.id, {
                     title: formData.title,
                     content: formData.content,
                     tags: formData.tags,
@@ -109,7 +120,7 @@ export function Notes() {
                 });
             } else {
                 // Create new note
-                await window.electronAPI.createNote({
+                await api.createNote({
                     title: formData.title,
                     content: formData.content,
                     tags: formData.tags,
@@ -123,20 +134,23 @@ export function Notes() {
         }
     };
 
-    const handleDelete = async (noteId: string) => {
-        if (confirm('Are you sure you want to delete this note?')) {
-            try {
-                await window.electronAPI.deleteNote(noteId);
-                await loadData();
-            } catch (error) {
-                console.error('Failed to delete note:', error);
-            }
+    const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+
+    const confirmDelete = async () => {
+        if (!pendingDeleteId) return;
+        try {
+            await api.deleteNote(pendingDeleteId);
+            await loadData();
+        } catch (error) {
+            console.error('Failed to delete note:', error);
+        } finally {
+            setPendingDeleteId(null);
         }
     };
 
     const togglePin = async (note: Note) => {
         try {
-            await window.electronAPI.updateNote(note.id, {
+            await api.updateNote(note.id, {
                 pinned: !note.pinned,
                 updatedAt: Date.now(),
             });
@@ -175,7 +189,7 @@ export function Notes() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {[...Array(4)].map((_, index) => (
                             <div
-                                key={`loading-note-${index.toString()}-${Math.random()}`}
+                                key={`loading-note-${index.toString()}`}
                                 className="h-32 bg-muted rounded"
                             ></div>
                         ))}
@@ -295,7 +309,7 @@ export function Notes() {
                                 <div className="space-y-2">
                                     {formData.tags.map((tag, index) => (
                                         <div
-                                            key={`tag-input-${index.toString()}-${Math.random()}`}
+                                            key={`tag-input-${index.toString()}`}
                                             className="flex gap-2"
                                         >
                                             <Input
@@ -386,7 +400,9 @@ export function Notes() {
                                             variant="ghost"
                                             size="sm"
                                             onClick={() => {
-                                                handleDelete(viewingNote.id);
+                                                setPendingDeleteId(
+                                                    viewingNote.id,
+                                                );
                                                 closeViewDialog();
                                             }}
                                         >
@@ -441,7 +457,7 @@ export function Notes() {
                 {sortedNotes.map((note) => (
                     <Card
                         key={note.id}
-                        className={`cursor-pointer hover:shadow-md transition-shadow ${note.pinned ? 'ring-2 ring-primary' : ''}`}
+                        className={`cursor-pointer hover:border-primary/50 hover:shadow-md transition-all ${note.pinned ? 'ring-2 ring-primary' : ''}`}
                         onClick={() => openViewDialog(note)}
                     >
                         <CardHeader className="pb-3">
@@ -488,7 +504,7 @@ export function Notes() {
                                         size="sm"
                                         onClick={(e) => {
                                             e.stopPropagation();
-                                            handleDelete(note.id);
+                                            setPendingDeleteId(note.id);
                                         }}
                                     >
                                         <Trash2 className="h-4 w-4" />
@@ -537,6 +553,31 @@ export function Notes() {
                     )}
                 </div>
             )}
+            <AlertDialog
+                open={pendingDeleteId !== null}
+                onOpenChange={(open) => {
+                    if (!open) setPendingDeleteId(null);
+                }}
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete note</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to delete this note? This
+                            action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={confirmDelete}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                            Delete
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }

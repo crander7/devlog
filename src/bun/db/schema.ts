@@ -92,6 +92,11 @@ export const settings = sqliteTable('settings', {
     })
         .notNull()
         .default(true),
+    clockInPromptOnLaunch: integer('clock_in_prompt_on_launch', {
+        mode: 'boolean',
+    })
+        .notNull()
+        .default(true),
 });
 
 // Active Timer (single row state)

@@ -4,10 +4,10 @@
 
 **Developer ID Application** is an Apple certificate used to sign macOS applications for distribution outside the Mac App Store. It:
 
-- ✅ Verifies you as a trusted developer
-- ✅ Allows users to install your app without security warnings
-- ✅ Enables Gatekeeper to recognize your app as safe
-- ✅ Required for notarization (Apple's security check)
+- Verifies you as a trusted developer
+- Allows users to install your app without security warnings
+- Enables Gatekeeper to recognize your app as safe
+- Required for notarization (Apple's security check)
 
 ## Do You Need It?
 
@@ -15,7 +15,7 @@
 
 - If you're only using the app yourself, you can skip code signing
 - macOS may show a warning, but you can still run the app
-- Right-click → Open → Click "Open" to bypass the warning
+- Right-click > Open > Click "Open" to bypass the warning
 
 ### For Distribution (You need it)
 
@@ -48,48 +48,53 @@
    - Double-click the downloaded `.cer` file
    - It will be added to your Keychain
 
-5. **Configure electron-builder**
-   Add to `package.json`:
+5. **Sign the app**
 
-   ```json
-   "build": {
-     "mac": {
-       "identity": "Developer ID Application: Your Name (TEAM_ID)"
-     }
-   }
+   After building with `bun run build:app`, use `codesign` to sign the resulting `.app` bundle:
+
+   ```bash
+   codesign --deep --force --options runtime \
+     --sign "Developer ID Application: Your Name (TEAM_ID)" \
+     build/DevLog.app
    ```
 
 ## Notarization (Optional but Recommended)
 
-After code signing, you can notarize your app:
+After code signing, you can notarize your app so macOS Gatekeeper trusts it without warnings:
 
 1. **Get App-Specific Password**
    - Go to <https://appleid.apple.com>
-   - Generate app-specific password
+   - Generate an app-specific password
 
-2. **Configure electron-builder**
+2. **Store credentials** (one-time)
 
-   ```json
-   "build": {
-     "mac": {
-       "hardenedRuntime": true,
-       "gatekeeperAssess": false,
-       "entitlements": "build/entitlements.mac.plist",
-       "entitlementsInherit": "build/entitlements.mac.plist"
-     },
-     "afterSign": "scripts/notarize.js"
-   }
+   ```bash
+   xcrun notarytool store-credentials "devlog-notarize" \
+     --apple-id "you@example.com" \
+     --team-id "TEAM_ID" \
+     --password "app-specific-password"
    ```
 
-3. **Create notarize script** (see electron-builder docs for full example)
+3. **Submit for notarization**
+
+   ```bash
+   # Create a zip of the signed app
+   ditto -c -k --keepParent build/DevLog.app build/DevLog.zip
+
+   # Submit
+   xcrun notarytool submit build/DevLog.zip \
+     --keychain-profile "devlog-notarize" \
+     --wait
+
+   # Staple the ticket to the app
+   xcrun stapler staple build/DevLog.app
+   ```
 
 ## Current Status
 
-Your build shows:
-
-- ⚠️ Code signing skipped (no Developer ID found)
-- ✅ App will still work, but users may see warnings
-- ✅ For personal use, this is fine!
+- Code signing is skipped for local development builds
+- The app will still work, but users may see Gatekeeper warnings
+- For personal use, this is fine!
 
 ## Quick Reference
 
@@ -98,49 +103,42 @@ Your build shows:
 - **Cost**: $99/year for Apple Developer Program
 - **Time**: ~30 minutes to set up
 
+---
+
 # App Icon Setup
 
 ## For macOS
 
-1. Create an icon file in PNG format (recommended: 1024x1024px)
-2. Convert it to `.icns` format using one of these methods:
+Electrobun expects an `icon.iconset/` directory at the project root (configured in `electrobun.config.ts`).
 
-### Method 1: Using `iconutil` (macOS built-in)
+1. Create an icon in PNG format (recommended: 1024x1024px)
+2. Generate the required sizes in an `.iconset` directory:
+
+### Using `iconutil` (macOS built-in)
 
 ```bash
-# Create an iconset directory
-mkdir icon.iconset
+mkdir -p icon.iconset
 
-# Create different sizes (you can use ImageMagick or any image tool)
 # Required sizes:
-# - icon_16x16.png
-# - icon_16x16@2x.png (32x32)
-# - icon_32x32.png
-# - icon_32x32@2x.png (64x64)
-# - icon_128x128.png
-# - icon_128x128@2x.png (256x256)
-# - icon_256x256.png
-# - icon_256x256@2x.png (512x512)
-# - icon_512x512.png
-# - icon_512x512@2x.png (1024x1024)
+# icon_16x16.png, icon_16x16@2x.png (32x32)
+# icon_32x32.png, icon_32x32@2x.png (64x64)
+# icon_128x128.png, icon_128x128@2x.png (256x256)
+# icon_256x256.png, icon_256x256@2x.png (512x512)
+# icon_512x512.png, icon_512x512@2x.png (1024x1024)
 
-# Convert to .icns
-iconutil -c icns icon.iconset -o icon.icns
+# Use sips (macOS built-in) or ImageMagick to resize your source image:
+# sips -z 16 16 source.png --out icon.iconset/icon_16x16.png
+# sips -z 32 32 source.png --out icon.iconset/icon_16x16@2x.png
+# ... etc.
 ```
 
-### Method 2: Using online tools
+Electrobun will convert the `.iconset` to `.icns` automatically during the build.
+
+### Using online tools
 
 - Use online converters like <https://cloudconvert.com/png-to-icns>
 - Upload your 1024x1024 PNG and download the .icns file
-
-### Method 3: Using ImageMagick (if installed)
-
-```bash
-# Install ImageMagick: brew install imagemagick
-# Then create all sizes and convert
-```
-
-3. Place the `icon.icns` file in the `build/` directory
+- Extract the individual sizes into `icon.iconset/`
 
 ## For Windows (optional)
 
