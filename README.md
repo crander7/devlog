@@ -28,7 +28,13 @@ A modern desktop application built with Electrobun (Bun runtime), React, and sha
 - **CLI**: Terminal-based clock in/out that shares the same database
 - **Dark Mode**: Full theme support
 
-## Installation
+## Download
+
+Pre-built `.dmg` for macOS (Apple Silicon) is available on the [Releases](https://github.com/crander7/devlog/releases) page.
+
+> **macOS note:** This app is not code-signed. After mounting the `.dmg` and dragging to Applications, run `xattr -cr /Applications/DevLog.app` or `xattr -cr /Applications/DevLog-canary.app` in Terminal before opening. Depending on which version you downloaded.
+
+## Installation (from source)
 
 ```bash
 bun install
