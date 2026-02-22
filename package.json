@@ -1,6 +1,6 @@
 {
     "name": "devlog",
-    "version": "0.0.2",
+    "version": "0.0.3",
     "description": "A (local/private) desktop productivity app for work session tracking, todos, notes, etc — built with Electrobun, React, and SQLite",
     "type": "module",
     "scripts": {
